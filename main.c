@@ -223,11 +223,11 @@ s3_put(const char * key_id, const char * key_secret, const char * region,
 	resp[resplen] = '\0';
 
         /* Find the end of the first line. */
-        pos = strcspn(resp, "\r\n");
+        pos = strcspn((const char *) resp, "\r\n");
 
         /* Look for a "200" status on the first line. */
-        if ((strstr(resp, " 200 ") == NULL) ||
-            (strstr(resp, " 200 ") > (char *)&resp[pos])) {
+        if ((strstr((const char *)resp, " 200 ") == NULL) ||
+            (strstr((const char *) resp, " 200 ") > (char *)&resp[pos])) {
 		warnp("S3 request failed:\n%s\n", resp);
 		goto err4;
 	}
@@ -436,19 +436,20 @@ uploadvolume(const char * fname, const char * region, const char * bucket,
 		free(query);
 
 		/* Append closing tag. */
-		s = "</part>";
+		s = strdup("</part>");
 		if (str_append(manifest, s, strlen(s)))
 			goto err4;
 
 		/* Free string allocated by asprintf. */
 		free(path);
+		free(s);
 	}
 
 	/* Report completion. */
 	fprintf(stderr, " done.\n");
 
 	/* Append the end of the manifest file. */
-	s = "</parts></import></manifest>";
+	s = strdup("</parts></import></manifest>");
 	if (str_append(manifest, s, strlen(s)))
 		goto err3;
 
@@ -464,7 +465,7 @@ uploadvolume(const char * fname, const char * region, const char * bucket,
 		free(s);
 		goto err2;
 	}
-	if (s3_put(key_id, key_secret, region, bucket, path, s, len)) {
+	if (s3_put(key_id, key_secret, region, bucket, path, (uint8_t *) s, len)) {
 		free(path);
 		free(s);
 		goto err2;
@@ -514,7 +515,7 @@ ec2_apicall(const char * key_id, const char * key_secret, const char * region,
 	uint8_t * body;
 
 	/* Sign request. */
-	if (aws_sign_ec2_headers(key_id, key_secret, region, s, strlen(s),
+	if (aws_sign_ec2_headers(key_id, key_secret, region, (const uint8_t *)s, strlen(s),
 	    &x_amz_content_sha256, &x_amz_date, &authorization)) {
 		warnp("Failed to sign EC2 POST request");
 		goto err0;
@@ -546,7 +547,7 @@ ec2_apicall(const char * key_id, const char * key_secret, const char * region,
 		goto err3;
 
 	/* Send the request. */
-	if ((errstr = sslreq(host, "443", CERTFILE, req, len, resp, &resplen))
+	if ((errstr = sslreq(host, "443", CERTFILE, (uint8_t *)req, len, resp, &resplen))
 	    != NULL) {
 		warnp("SSL request failed: %s", errstr);
 		goto err4;
@@ -556,23 +557,23 @@ ec2_apicall(const char * key_id, const char * key_secret, const char * region,
 	resp[resplen] = '\0';
 
 	/* EC2 API responses should not contain NUL bytes. */
-	if (strlen(resp) != resplen) {
+	if (strlen((const char *) resp) != resplen) {
 		warnp("NUL byte in EC2 API response");
 		goto err4;
 	}
 
         /* Find the end of the first line. */
-        pos = strcspn(resp, "\r\n");
+        pos = strcspn((const char *) resp, "\r\n");
 
         /* Look for a "200" status on the first line. */
-        if ((strstr(resp, " 200 ") == NULL) ||
-            (strstr(resp, " 200 ") > (char *)&resp[pos])) {
+        if ((strstr((const char *) resp, " 200 ") == NULL) ||
+            (((char *) strstr((const char *)resp, " 200 ")) > (char *)&resp[pos])) {
 		warnp("EC2 API request failed:\n%s\n", resp);
 		goto err4;
 	}
 
 	/* Find the end of the headers. */
-	if ((body = strstr(resp, "\r\n\r\n")) == NULL) {
+	if ((body = (uint8_t *) strstr((const char *) resp, "\r\n\r\n")) == NULL) {
 		warnp("Bad EC2 API response received:\n%s\n", resp);
 		goto err4;
 	}
@@ -581,7 +582,7 @@ ec2_apicall(const char * key_id, const char * key_secret, const char * region,
 	body = &body[4];
 
 	/* Duplicate response body. */
-	if ((body = strdup(body)) == NULL)
+	if ((body = (uint8_t *) strdup((char *) body)) == NULL)
 		goto err4;
 
 	/* Free repsonse buffer. */
@@ -595,7 +596,7 @@ ec2_apicall(const char * key_id, const char * key_secret, const char * region,
 	free(x_amz_content_sha256);
 
 	/* Success! */
-	return (body);
+	return ((char *) body);
 
 err4:
 	free(resp);
